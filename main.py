@@ -356,7 +356,7 @@ class EduteraBot:
 
 async def main():
     # Replace with your actual bot token
-    BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+    BOT_TOKEN = "7951229858:AAEcDzEYxxlf6pfD_JlsonyXzgzuOpTyKA8"
     
     # Create and run the bot
     bot = EduteraBot(BOT_TOKEN)
