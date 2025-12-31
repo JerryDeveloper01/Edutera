@@ -16,8 +16,8 @@ bot = Client("bot",
              api_id= API_ID,
              api_hash=API_HASH)
 
-owner_id = [7426949337]
-auth_users = [7426949337]
+owner_id = [8517203930]
+auth_users = [8517203930]
 
 class EduteriaExtractor:
     def __init__(self, username, password):
@@ -257,8 +257,8 @@ def main():
     # Configuration
     EDUTERIA_USERNAME = "your_email@example.com"  # Replace with your Eduteria email
     EDUTERIA_PASSWORD = "your_password"           # Replace with your Eduteria password
-    TELEGRAM_BOT_TOKEN = "your_telegram_bot_token" # Replace with your Telegram bot token
-    TELEGRAM_CHAT_ID = "7426949337"             # Replace with your Telegram chat ID
+    TELEGRAM_BOT_TOKEN = "7951229858:AAEcDzEYxxlf6pfD_JlsonyXzgzuOpTyKA8" # Replace with your Telegram bot token
+    TELEGRAM_CHAT_ID = "8517203930"             # Replace with your Telegram chat ID
     
     try:
         # Create extractor
