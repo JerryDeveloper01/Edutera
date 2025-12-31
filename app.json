@@ -1,0 +1,39 @@
+{
+    "name": "𓐄꯭  །༨ ͱ꧊ 𝛖 ຮ 𝛊🌺꯭آإ𓂃™",
+    "description": "Download videos from various websites using this telegram bot",
+    "logo": "https://envs.sh/srE.jpg",
+    "keywords": [
+        "text-video",
+        "video-extract",
+        "pyrogram"
+    ],
+    "repository": "https://github.com/JerryDeveloper01/Edutera",
+    "success_url": "https://telegram.me/rajcontactbot",
+    "stack": "container",
+    "env": {
+        "API_ID": {
+            "description": "37764044",
+            "required": true
+        },
+        "API_HASH": {
+            "description": "f88c0bc0e0013539190204297cdfdae6",
+            "required": true
+        },
+        "BOT_TOKEN": {
+            "description": "Enter your bot token",
+            "required": true
+        }
+    },
+    "addons": [],
+    "buildpacks": [
+        {
+            "url": "https://github.com/amivin/aria2-heroku.git"
+        },
+        {
+            "url": "heroku/python"
+        },       
+        {
+            "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git"
+        }
+    ]
+    }
