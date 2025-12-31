@@ -1,21 +1,25 @@
 import requests
 from bs4 import BeautifulSoup
 import json
+import os
 import re
-import time
+from urllib.parse import urljoin, urlparse
 import asyncio
+import aiohttp
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class EduteriaExtractor:
+class EduteraExtractor:
     def __init__(self, username, password):
         self.username = username
         self.password = password
         self.session = requests.Session()
-        self.base_url = "https://www.eduteria.live/"
+        self.base_url = "https://www.eduteria.live"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -24,39 +28,27 @@ class EduteriaExtractor:
             'Connection': 'keep-alive',
         }
         self.session.headers.update(self.headers)
-    
+        
     def login(self):
-        """Login to Eduteria Live"""
+        """Login to Edutera Live"""
         try:
-            login_url = f"{self.base_url}login"
+            login_url = f"{self.base_url}/login"
             response = self.session.get(login_url)
             
             # Get CSRF token
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(response.text, 'html.parser')
             csrf_token = soup.find('input', {'name': '_token'})
             
-            if csrf_token:
-                csrf_value = csrf_token.get('value')
-            else:
-                csrf_value = ''
-            
-            # Login data
             login_data = {
                 'email': self.username,
                 'password': self.password,
-                'remember': 'on'
+                '_token': csrf_token['value'] if csrf_token else ''
             }
             
-            # Add CSRF token if available
-            if csrf_value:
-                login_data['_token'] = csrf_value
-            
-            # Perform login
             login_response = self.session.post(login_url, data=login_data)
             
-            # Check if login was successful
-            if 'dashboard' in login_response.url or 'profile' in login_response.url:
-                logger.info("Login successful")
+            if 'dashboard' in login_response.url.lower():
+                logger.info("Successfully logged in to Edutera Live")
                 return True
             else:
                 logger.error("Login failed")
@@ -66,236 +58,312 @@ class EduteriaExtractor:
             logger.error(f"Login error: {str(e)}")
             return False
     
-    def get_courses(self):
-        """Get list of purchased courses"""
+    def get_course_list(self):
+        """Get all purchased courses"""
         try:
-            courses_url = f"{self.base_url}dashboard"
-            response = self.session.get(courses_url)
+            dashboard_url = f"{self.base_url}/dashboard"
+            response = self.session.get(dashboard_url)
             
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Find course elements
+            # Find courses
             courses = []
             course_elements = soup.find_all('div', class_='course-card')
             
-            for element in course_elements:
-                title_element = element.find('h3', class_='course-title')
-                link_element = element.find('a')
+            for course in course_elements:
+                title_element = course.find('h3', class_='course-title')
+                link_element = course.find('a')
                 
                 if title_element and link_element:
-                    course = {
+                    course_info = {
                         'title': title_element.text.strip(),
-                        'url': link_element.get('href'),
-                        'id': self.extract_course_id(link_element.get('href'))
+                        'url': urljoin(self.base_url, link_element['href']),
+                        'id': self.extract_course_id(link_element['href'])
                     }
-                    courses.append(course)
+                    courses.append(course_info)
             
-            logger.info(f"Found {len(courses)} courses")
             return courses
             
         except Exception as e:
-            logger.error(f"Error getting courses: {str(e)}")
+            logger.error(f"Error getting course list: {str(e)}")
             return []
     
     def extract_course_id(self, url):
         """Extract course ID from URL"""
-        match = re.search(r'/course/(\d+)', url)
-        return match.group(1) if match else None
+        try:
+            parsed_url = urlparse(url)
+            path_parts = parsed_url.path.strip('/').split('/')
+            if len(path_parts) > 1 and path_parts[0] == 'course':
+                return path_parts[1]
+            return 'unknown'
+        except:
+            return 'unknown'
     
-    def get_course_content(self, course_url):
-        """Get course content including videos and PDFs"""
+    def get_course_details(self, course_url):
+        """Get detailed course information"""
         try:
             response = self.session.get(course_url)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Find video and PDF links
-            content = {
-                'videos': [],
-                'pdfs': [],
-                'title': '',
-                'description': ''
-            }
+            soup = BeautifulSoup(response.text, 'html.parser')
             
             # Get course title
             title_element = soup.find('h1', class_='course-title')
-            if title_element:
-                content['title'] = title_element.text.strip()
+            course_title = title_element.text.strip() if title_element else "Unknown Course"
             
-            # Get description
-            desc_element = soup.find('div', class_='course-description')
-            if desc_element:
-                content['description'] = desc_element.text.strip()
+            # Get course content
+            content_elements = soup.find_all('div', class_='lesson-item')
             
-            # Look for video elements
+            lessons = []
+            for element in content_elements:
+                title = element.find('span', class_='lesson-title')
+                video_link = element.find('a', href=True)
+                
+                if title and video_link:
+                    lessons.append({
+                        'title': title.text.strip(),
+                        'video_url': urljoin(self.base_url, video_link['href']),
+                        'type': 'video'
+                    })
+            
+            # Check for PDFs
+            pdf_elements = soup.find_all('a', href=True)
+            for pdf_element in pdf_elements:
+                if pdf_element.get('href', '').endswith('.pdf'):
+                    lessons.append({
+                        'title': pdf_element.text.strip() or 'PDF Document',
+                        'pdf_url': urljoin(self.base_url, pdf_element['href']),
+                        'type': 'pdf'
+                    })
+            
+            return {
+                'title': course_title,
+                'lessons': lessons,
+                'total_lessons': len(lessons)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting course details: {str(e)}")
+            return None
+    
+    def extract_video_links(self, lesson_url):
+        """Extract video links from lesson page"""
+        try:
+            response = self.session.get(lesson_url)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for video sources
             video_elements = soup.find_all('video')
-            for video in video_elements:
-                src = video.get('src')
-                if src:
-                    content['videos'].append({
-                        'title': 'Video',
-                        'url': src
-                    })
+            if video_elements:
+                video_sources = []
+                for video in video_elements:
+                    sources = video.find_all('source')
+                    for source in sources:
+                        if source.get('src'):
+                            video_sources.append(urljoin(self.base_url, source['src']))
+                return video_sources
             
-            # Look for PDF links
-            pdf_links = soup.find_all('a', href=re.compile(r'\.pdf$'))
-            for link in pdf_links:
-                href = link.get('href')
-                if href and href.endswith('.pdf'):
-                    content['pdfs'].append({
-                        'title': link.text.strip(),
-                        'url': href
-                    })
+            # Look for iframe or other video elements
+            iframe = soup.find('iframe')
+            if iframe and iframe.get('src'):
+                return [urljoin(self.base_url, iframe['src'])]
+                
+            return []
             
-            # Look for other video links (iframe or data attributes)
-            video_links = soup.find_all('a', href=re.compile(r'(youtube|vimeo)'))
-            for link in video_links:
-                href = link.get('href')
-                if href:
-                    content['videos'].append({
-                        'title': link.text.strip(),
-                        'url': href
-                    })
+        except Exception as e:
+            logger.error(f"Error extracting video links: {str(e)}")
+            return []
+
+    def extract_all_content(self, course_url):
+        """Extract all content from a course"""
+        try:
+            course_data = self.get_course_details(course_url)
+            if not course_data:
+                return None
+                
+            # Process each lesson
+            processed_lessons = []
+            for lesson in course_data['lessons']:
+                lesson_info = {
+                    'title': lesson['title'],
+                    'type': lesson['type']
+                }
+                
+                if lesson['type'] == 'video':
+                    # Try to extract video URL
+                    video_links = self.extract_video_links(lesson['video_url'])
+                    lesson_info['video_urls'] = video_links
+                elif lesson['type'] == 'pdf':
+                    lesson_info['pdf_url'] = lesson.get('pdf_url', '')
+                
+                processed_lessons.append(lesson_info)
             
-            return content
+            course_data['lessons'] = processed_lessons
+            return course_data
             
         except Exception as e:
             logger.error(f"Error extracting course content: {str(e)}")
             return None
-    
-    def extract_all_content(self):
-        """Extract content from all courses"""
-        courses = self.get_courses()
-        all_content = []
-        
-        for course in courses:
-            logger.info(f"Processing course: {course['title']}")
-            content = self.get_course_content(course['url'])
-            
-            if content:
-                content['course_title'] = course['title']
-                all_content.append(content)
-                
-                # Add delay to avoid rate limiting
-                time.sleep(2)
-        
-        return all_content
 
-class TelegramBot:
+def generate_txt_content(course_data):
+    """Generate TXT format content"""
+    txt_content = f"Course: {course_data.get('title', 'Unknown Course')}\n"
+    txt_content += "=" * 50 + "\n"
+    txt_content += f"Total Lessons: {course_data.get('total_lessons', 0)}\n\n"
+    
+    for i, lesson in enumerate(course_data.get('lessons', []), 1):
+        txt_content += f"Lesson {i}: {lesson.get('title', 'Unknown')}\n"
+        
+        if lesson.get('type') == 'video':
+            txt_content += "  Video URLs:\n"
+            for video_url in lesson.get('video_urls', []):
+                txt_content += f"    - {video_url}\n"
+        elif lesson.get('type') == 'pdf':
+            txt_content += f"  PDF URL: {lesson.get('pdf_url', '')}\n"
+        
+        txt_content += "\n"
+    
+    return txt_content
+
+# Telegram Bot Implementation
+class EduteraBot:
     def __init__(self, token):
-        self.bot = Bot(token=token)
-        self.session = asyncio.Session()
+        self.token = token
+        self.app = Application.builder().token(token).build()
+        self.extractor = None
+        
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start command handler"""
+        welcome_text = (
+            "🤖 Edutera Live Course Extractor\n\n"
+            "Send your Edutera Live login credentials in this format:\n"
+            "username@email.com\npassword\n\n"
+            "Or use /extract to extract course content"
+        )
+        await update.message.reply_text(welcome_text)
     
-    async def send_message(self, chat_id, text):
-        """Send message to Telegram chat"""
-        try:
-            await self.bot.send_message(chat_id=chat_id, text=text)
-        except Exception as e:
-            logger.error(f"Error sending message: {str(e)}")
-    
-    async def send_file(self, chat_id, file_path, caption):
-        """Send file to Telegram chat"""
-        try:
-            with open(file_path, 'rb') as file:
-                await self.bot.send_document(chat_id=chat_id, document=file, caption=caption)
-        except Exception as e:
-            logger.error(f"Error sending file: {str(e)}")
-
-def generate_txt_content(content_list):
-    """Generate TXT content from extracted data"""
-    txt_content = []
-    
-    txt_content.append("EDUTERIA LIVE COURSE EXTRACTOR")
-    txt_content.append("=" * 40)
-    txt_content.append(f"Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    txt_content.append("")
-    
-    for course in content_list:
-        txt_content.append(f"Course: {course['course_title']}")
-        txt_content.append("-" * 50)
+    async def login_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle login credentials"""
+        text = update.message.text
+        lines = text.strip().split('\n')
         
-        # Videos
-        if course.get('videos'):
-            txt_content.append("VIDEOS:")
-            for video in course['videos']:
-                txt_content.append(f"  Title: {video['title']}")
-                txt_content.append(f"  URL: {video['url']}")
-                txt_content.append("")
-        
-        # PDFs
-        if course.get('pdfs'):
-            txt_content.append("PDF FILES:")
-            for pdf in course['pdfs']:
-                txt_content.append(f"  Title: {pdf['title']}")
-                txt_content.append(f"  URL: {pdf['url']}")
-                txt_content.append("")
-        
-        txt_content.append("")
-    
-    return "\n".join(txt_content)
-
-def save_txt_file(content, filename):
-    """Save content to TXT file"""
-    try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(content)
-        logger.info(f"Content saved to {filename}")
-        return True
-    except Exception as e:
-        logger.error(f"Error saving file: {str(e)}")
-        return False
-
-def main():
-    # Configuration
-    EDUTERIA_USERNAME = "your_email@example.com"  # Replace with your Eduteria email
-    EDUTERIA_PASSWORD = "your_password"           # Replace with your Eduteria password
-    TELEGRAM_BOT_TOKEN = "7951229858:AAEcDzEYxxlf6pfD_JlsonyXzgzuOpTyKA8" # Replace with your Telegram bot token
-    TELEGRAM_CHAT_ID = "8517203930"             # Replace with your Telegram chat ID
-    
-    try:
-        # Create extractor
-        extractor = EduteriaExtractor(EDUTERIA_USERNAME, EDUTERIA_PASSWORD)
-        
-        # Login
-        if not extractor.login():
-            logger.error("Login failed")
-            return
-        
-        logger.info("Starting course extraction...")
-        
-        # Extract all content
-        content_list = extractor.extract_all_content()
-        
-        if not content_list:
-            logger.error("No content extracted")
-            return
-        
-        # Generate TXT content
-        txt_content = generate_txt_content(content_list)
-        
-        # Save to file
-        filename = f"eduteria_extracted_content_{time.strftime('%Y%m%d_%H%M%S')}.txt"
-        save_txt_file(txt_content, filename)
-        
-        logger.info(f"Content extracted successfully. File saved as {filename}")
-        
-        # Send via Telegram bot (optional)
-        try:
-            # Create Telegram bot
-            bot = TelegramBot(TELEGRAM_BOT_TOKEN)
+        if len(lines) >= 2:
+            username = lines[0].strip()
+            password = lines[1].strip()
             
-            # Send TXT file via Telegram
-            with open(filename, 'rb') as file:
-                # You can send the file content as text message
-                message = f"Extracted content from Eduteria Live\n\n{txt_content[:2000]}..."  # First 2000 chars
-                logger.info(f"Sending message to Telegram chat {TELEGRAM_CHAT_ID}")
-                # Note: For large files, you might want to send as document
-                # This is a simplified version
+            # Create extractor instance
+            self.extractor = EduteraExtractor(username, password)
+            
+            # Try to login
+            if self.extractor.login():
+                await update.message.reply_text(
+                    "✅ Successfully logged in!\n\n"
+                    "Use /courses to see your available courses"
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Login failed. Please check your credentials."
+                )
+        else:
+            await update.message.reply_text(
+                "❌ Please provide both username and password in separate lines.\n"
+                "Format:\nusername@email.com\npassword"
+            )
+    
+    async def courses_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """List available courses"""
+        if not self.extractor:
+            await update.message.reply_text(
+                "⚠️ Please login first using /start"
+            )
+            return
+        
+        try:
+            courses = self.extractor.get_course_list()
+            if not courses:
+                await update.message.reply_text("No courses found.")
+                return
+            
+            # Create keyboard for courses
+            keyboard = []
+            for course in courses:
+                keyboard.append([InlineKeyboardButton(
+                    course['title'], 
+                    callback_data=f"course_{course['id']}"
+                )])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "Select a course to extract content:", 
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            await update.message.reply_text(f"Error fetching courses: {str(e)}")
+    
+    async def extract_course(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Extract course content"""
+        query = update.callback_query
+        await query.answer()
+        
+        course_id = query.data.split('_')[1]
+        logger.info(f"Extracting course ID: {course_id}")
+        
+        # For demo purposes, we'll create a sample course structure
+        # In real implementation, you'd need to extract actual course URLs
+        
+        try:
+            # Get course details
+            course_url = f"{self.extractor.base_url}/course/{course_id}"
+            
+            # Extract content
+            course_data = self.extractor.extract_all_content(course_url)
+            
+            if course_data:
+                # Generate TXT content
+                txt_content = generate_txt_content(course_data)
+                
+                # Save to file
+                filename = f"course_{course_id}_extracted.txt"
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(txt_content)
+                
+                # Send file
+                await query.message.reply_document(
+                    document=open(filename, 'rb'),
+                    filename=filename,
+                    caption=f"✅ Course extracted successfully!\n\n"
+                           f"Course: {course_data.get('title', 'Unknown')}\n"
+                           f"Lessons: {course_data.get('total_lessons', 0)}"
+                )
+                
+                # Clean up
+                os.remove(filename)
+            else:
+                await query.message.reply_text("❌ Failed to extract course content.")
                 
         except Exception as e:
-            logger.warning(f"Telegram sending failed: {str(e)}")
-            
-    except Exception as e:
-        logger.error(f"Main execution error: {str(e)}")
+            await query.message.reply_text(f"Error extracting course: {str(e)}")
+    
+    def setup_handlers(self):
+        """Setup all bot handlers"""
+        self.app.add_handler(CommandHandler("start", self.start))
+        self.app.add_handler(CommandHandler("courses", self.courses_handler))
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.login_handler))
+        self.app.add_handler(MessageHandler(filters.COMMAND, self.start))
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.login_handler))
+        
+        # Callback query handler
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.login_handler))
 
-if __name__ == "main.py":
-    main()
+async def main():
+    # Replace with your actual bot token
+    BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+    
+    # Create and run the bot
+    bot = EduteraBot(BOT_TOKEN)
+    bot.setup_handlers()
+    
+    # Start the bot
+    await bot.app.run_polling()
+
+if __name__ == '__main__':
+    asyncio.run(main())
