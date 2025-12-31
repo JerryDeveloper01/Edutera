@@ -10,14 +10,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-bot = Client("bot",
-             bot_token=BOT_TOKEN,
-             api_id= API_ID,
-             api_hash=API_HASH)
-
-owner_id = [8517203930]
-auth_users = [8517203930]
-
 class EduteriaExtractor:
     def __init__(self, username, password):
         self.username = username
