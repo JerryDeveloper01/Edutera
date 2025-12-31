@@ -297,5 +297,5 @@ def main():
     except Exception as e:
         logger.error(f"Main execution error: {str(e)}")
 
-if __name__ == "__main__":
+if __name__ == "main.py":
     main()
