@@ -11,6 +11,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+bot = Client("bot",
+             bot_token=BOT_TOKEN,
+             api_id= API_ID,
+             api_hash=API_HASH)
+
+owner_id = [7426949337]
+auth_users = [7426949337]
+
 class EduteriaExtractor:
     def __init__(self, username, password):
         self.username = username
@@ -250,7 +258,7 @@ def main():
     EDUTERIA_USERNAME = "your_email@example.com"  # Replace with your Eduteria email
     EDUTERIA_PASSWORD = "your_password"           # Replace with your Eduteria password
     TELEGRAM_BOT_TOKEN = "your_telegram_bot_token" # Replace with your Telegram bot token
-    TELEGRAM_CHAT_ID = "your_chat_id"             # Replace with your Telegram chat ID
+    TELEGRAM_CHAT_ID = "7426949337"             # Replace with your Telegram chat ID
     
     try:
         # Create extractor
