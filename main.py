@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 import json
 import re
 import time
-import Bot
 import asyncio
 import logging
 
