@@ -1,1 +1,1 @@
-pip install -r requirements.txt
+python edutera_bot.py
